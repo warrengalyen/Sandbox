@@ -160,14 +160,10 @@ impl Sandbox {
     }
 
     pub fn render(&mut self, frame: &mut [u8], dt: f32) {
-        let noise = NoiseBuilder::turbulence_2d_offset(
-            dt * 20.0,
-            SIMULATION_WIDTH * 2,
-            dt * 20.0,
-            SIMULATION_HEIGHT / 2,
-        )
-        .generate_scaled(-1.0, 1.0);
-
+        let noise =
+        NoiseBuilder::turbulence_2d_offset(dt, SIMULATION_WIDTH * 2, dt, SIMULATION_HEIGHT / 2)
+            .generate_scaled(-1.0, 1.0);
+            
         let mut frame_index = 0;
         let mut noise_index = 0;
         for y in 0..SIMULATION_HEIGHT {
