@@ -1,5 +1,6 @@
 # Sandbox
 ### A sand simulation game
+![Project icon](flatpak/com.mechanikadesign.Sandbox.svg)
 
 ## Controls
 * Click and drag the mouse to place particles
