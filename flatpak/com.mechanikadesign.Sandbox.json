@@ -26,7 +26,7 @@
                 "head -n -8 Cargo.toml > t && mv t Cargo.toml",
                 "cargo build --release",
                 "install -D ./target/release/sandbox -t /app/bin/",
-                "install -Dm644 com.mechanikadesign.Sandbox.appdata.xml -t /app/share/metainfo/",
+                "install -Dm644 com.mechanikadesign.Sandbox.metainfo.xml -t /app/share/metainfo/",
                 "install -Dm644 com.mechanikadesign.Sandbox.desktop -t /app/share/applications/",
                 "install -Dm644 com.mechanikadesign.Sandbox.svg -t /app/share/icons/hicolor/scalable/apps/"
             ],
@@ -46,7 +46,7 @@
                 },
                 {
                     "type": "file",
-                    "path": "com.mechanikadesign.Sandbox.appdata.xml"
+                    "path": "com.mechanikadesign.Sandbox.metainfo.xml"
                 },
                 {
                     "type": "file",
