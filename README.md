@@ -1,8 +1,10 @@
 # Sandbox
 ### A sand simulation game
 ![Project icon](flatpak/com.mechanikadesign.Sandbox.svg)
+![Game screenshot](flatpak/screenshot.png)
 
 ## Controls
+### Basic Controls
 * Click and drag the mouse to place particles
 * <kbd>+</kbd> Increases brush size
 * <kbd>-</kbd> Decreases brush size

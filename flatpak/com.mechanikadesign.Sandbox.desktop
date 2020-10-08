@@ -5,7 +5,7 @@ Type=Application
 Name=Sandbox
 Comment=A sand simulation game
 Categories=Game;Simulation;
-Icon=com.mechanikadesign.Sandbox
+Icon=com.mechanikadesign.sandbox
 
 Exec=sandbox
 Terminal=false
