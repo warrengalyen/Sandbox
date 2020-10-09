@@ -40,15 +40,15 @@ Sandbox has the ability to record a video of the screen as you play.
 
 Videos will be saved to the following folders:
 
-| Platform | Folder              | Example               |
-| -------- | ------------------- | --------------------- |
-| Linux    | `XDG_VIDEOS_DIR`    | /home/warren/Videos    |
-| Windows  | `FOLDERID_Videos`   | C:\Users\Warren\Videos |
-| macOS    | `$HOME/Movies`      | /Users/Warren/Movies   |
+| Platform | Folder                      | Example                       |
+| -------- | --------------------------- | ----------------------------- |
+| Linux    | `XDG_VIDEOS_DIR/sandbox`    | /home/warren/Videos/sandbox    |
+| Windows  | `FOLDERID_Videos\sandbox`   | C:\Users\Warren\Videos\sandbox |
+| macOS    | `$HOME/Movies/sandbox`      | /Users/Warren/Movies/sandbox   |
 
 ---
 
-Video recording is not enabled by default, and can be enabled by passing `--features video-recording` to cargo when compiling.
+When building from source, video recording is not enabled by default, and can be enabled by passing `--features video-recording` to cargo when compiling.
 
 You must also have the following non-rust dependencies installed on your system:
 * GStreamer
