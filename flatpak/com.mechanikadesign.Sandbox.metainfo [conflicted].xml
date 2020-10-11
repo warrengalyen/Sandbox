@@ -8,6 +8,9 @@
   <project_license>AGPL-3.0-only</project_license>
 
   <releases>
+    <release version="1.1.0" date="2020-10-11">
+      <url>https://github.com/warrengalyen/sandbox/blob/master/CHANGELOG.md#110</url>
+    </release>
     <release version="1.0.0" date="2020-10-09">
       <url>https://github.com/warrengalyen/sandbox/blob/master/CHANGELOG.md#100</url>
     </release>
