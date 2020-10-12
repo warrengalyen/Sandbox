@@ -4,7 +4,7 @@ version = "1.1.0"
 edition = "2018"
 
 [dependencies]
-pixels = "0.2"
+pixels = { git = "https://github.com/parasyte/pixels", commit = "265ba2e5b3957bf3e5c17e6cde33df0ba0924d15" }
 imgui = "0.4"
 imgui-wgpu = "0.10.0"
 imgui-winit-support = "0.4"
