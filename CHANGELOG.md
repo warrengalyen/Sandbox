@@ -2,6 +2,7 @@
 ### Gameplay
 * Added a UI
 * Tweaked Fire spread
+* Smoke now looks smokier
 ### Misc
 * Performance improvements when no particles are glowing
 ### Bugfixes
