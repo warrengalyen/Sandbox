@@ -37,8 +37,7 @@ fn main() {
 
     // Setup rendering
     let surface_size = window.inner_size();
-    let surface = Surface::create(&window);
-    let surface_texture = SurfaceTexture::new(surface_size.width, surface_size.height, surface);
+    let surface_texture = SurfaceTexture::new(surface_size.width, surface_size.height, &window);
     let mut pixels =
         PixelsBuilder::new(SANDBOX_WIDTH as u32, SANDBOX_HEIGHT as u32, surface_texture)
             .request_adapter_options(RequestAdapterOptions {

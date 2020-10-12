@@ -1,33 +1,33 @@
-use pixels::include_spv;
-use pixels::wgpu::{self, *};
+use pixels::wgpu::util::{BufferInitDescriptor, DeviceExt};
+use pixels::wgpu::*;
+use std::mem::size_of;
+use std::slice;
 
 pub struct GlowPostProcess {
-    texture_width: u32,
-    texture_height: u32,
+    pub texture1: TextureView,
+    texture2: TextureView,
+    texture3: TextureView,
 
-    copy_to_texture1_pass: (RenderPipeline, BindGroup),
-    copy_glowing_pass: (ComputePipeline, BindGroup),
-    vertical_blur_pass: (ComputePipeline, BindGroup),
-    horizontal_blur_pass: (ComputePipeline, BindGroup),
-    add_glow_pass: (ComputePipeline, BindGroup),
-    copy_to_render_texture_pass: (RenderPipeline, BindGroup),
-
-    textures: [TextureView; 3],
     sampler: Sampler,
-    render_bind_group_layout: BindGroupLayout,
-    compute_bind_group_layout: BindGroupLayout,
+    bind_group_layout1: BindGroupLayout,
+    bind_group_layout2: BindGroupLayout,
+    bind_group_layout3: BindGroupLayout,
+
+    copy_glowing_pass: RenderPass,
+    vertical_blur_pass: RenderPass,
+    horizontal_blur_pass: RenderPass,
+    combine_pass: RenderPass,
+}
+
+struct RenderPass {
+    pipeline: RenderPipeline,
+    bind_group: BindGroup,
 }
 
 impl GlowPostProcess {
-    pub fn new(
-        device: &Device,
-        input_texture: &TextureView,
-        texture_width: u32,
-        texture_height: u32,
-    ) -> Self {
-        // Resources
-        let [texture1, texture2, texture3] = create_textures(device, texture_width, texture_height);
+    pub fn new(device: &Device, texture_width: u32, texture_height: u32) -> Self {
         let sampler = device.create_sampler(&SamplerDescriptor {
+            label: Some("glow_post_process_sampler"),
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
             address_mode_w: AddressMode::ClampToEdge,
@@ -36,105 +36,152 @@ impl GlowPostProcess {
             mipmap_filter: FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
-            compare: CompareFunction::Never,
+            compare: None,
+            anisotropy_clamp: None,
+        });
+        let bind_group_layout1 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("glow_post_process_bind_group_layout1"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bind_group_layout2 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("glow_post_process_bind_group_layout2"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bind_group_layout3 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("glow_post_process_bind_group_layout3"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
 
-        // Bind Groups
-        let render_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                bindings: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::FRAGMENT,
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            multisampled: false,
-                        },
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::FRAGMENT,
-                        ty: BindingType::Sampler { comparison: false },
-                    },
-                ],
-                label: None,
-            });
-        let compute_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                bindings: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            format: TextureFormat::Rgba16Float,
-                            readonly: true,
-                        },
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            format: TextureFormat::Rgba16Float,
-                            readonly: false,
-                        },
-                    },
-                ],
-                label: None,
-            });
-        let [copy_to_texture1_bind_group, copy_glowing_bind_group, vertical_blur_bind_group, horizontal_blur_bind_group, add_glow_bind_group, copy_to_render_texture_bind_group] =
-            create_bind_groups(
-                device,
-                [input_texture, &texture1, &texture2, &texture3],
-                &sampler,
-                &render_bind_group_layout,
-                &compute_bind_group_layout,
-            );
+        let (
+            [texture1, texture2, texture3],
+            [copy_glowing_bind_group, vertical_blur_bind_group, horizontal_blur_bind_group, combine_bind_group],
+        ) = create_resources(
+            device,
+            texture_width,
+            texture_height,
+            &sampler,
+            &bind_group_layout1,
+            &bind_group_layout2,
+            &bind_group_layout3,
+        );
 
-        // Shaders
-        let rectangle_shader =
-            device.create_shader_module(include_spv!("../shaders/rectangle.spv"));
-        let copy_texture_shader =
-            device.create_shader_module(include_spv!("../shaders/copy_texture.spv"));
+        let fullscreen_shader =
+            device.create_shader_module(include_spirv!("../shaders/fullscreen.spv"));
         let copy_glowing_shader =
-            device.create_shader_module(include_spv!("../shaders/copy_glowing.spv"));
+            device.create_shader_module(include_spirv!("../shaders/copy_glowing.spv"));
         let vertical_blur_shader =
-            device.create_shader_module(include_spv!("../shaders/vertical_blur.spv"));
+            device.create_shader_module(include_spirv!("../shaders/vertical_blur.spv"));
         let horizontal_blur_shader =
-            device.create_shader_module(include_spv!("../shaders/horizontal_blur.spv"));
-        let add_glow_shader = device.create_shader_module(include_spv!("../shaders/add_glow.spv"));
+            device.create_shader_module(include_spirv!("../shaders/horizontal_blur.spv"));
+        let combine_shader = device.create_shader_module(include_spirv!("../shaders/combine.spv"));
 
-        // Pipelines
-        let pipeline_layout_render = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&render_bind_group_layout],
+        let pipeline_layout1 = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("glow_post_process_pipeline_layout1"),
+            bind_group_layouts: &[&bind_group_layout1],
+            push_constant_ranges: &[],
         });
-        let pipeline_layout_compute = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&compute_bind_group_layout],
+        let pipeline_layout2 = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("glow_post_process_pipeline_layout2"),
+            bind_group_layouts: &[&bind_group_layout2],
+            push_constant_ranges: &[],
         });
-        let copy_to_texture1_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            layout: &pipeline_layout_render,
+        let pipeline_layout3 = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("glow_post_process_pipeline_layout3"),
+            bind_group_layouts: &[&bind_group_layout3],
+            push_constant_ranges: &[],
+        });
+        let copy_glowing_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("glow_post_process_copy_glowing_pipeline"),
+            layout: Some(&pipeline_layout1),
             vertex_stage: ProgrammableStageDescriptor {
-                module: &rectangle_shader,
+                module: &fullscreen_shader,
                 entry_point: "main",
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
-                module: &copy_texture_shader,
+                module: &copy_glowing_shader,
                 entry_point: "main",
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
                 cull_mode: CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[ColorStateDescriptor {
-                format: TextureFormat::Rgba16Float,
+                format: TextureFormat::Bgra8UnormSrgb,
                 color_blend: BlendDescriptor::REPLACE,
                 alpha_blend: BlendDescriptor::REPLACE,
                 write_mask: ColorWrite::ALL,
@@ -148,331 +195,353 @@ impl GlowPostProcess {
             sample_mask: !0,
             alpha_to_coverage_enabled: false,
         });
-        let copy_glowing_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            layout: &pipeline_layout_compute,
-            compute_stage: ProgrammableStageDescriptor {
-                module: &copy_glowing_shader,
+        let vertical_blur_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("glow_post_process_vertical_blur_pipeline"),
+            layout: Some(&pipeline_layout2),
+            vertex_stage: ProgrammableStageDescriptor {
+                module: &fullscreen_shader,
                 entry_point: "main",
             },
-        });
-        let vertical_blur_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            layout: &pipeline_layout_compute,
-            compute_stage: ProgrammableStageDescriptor {
+            fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &vertical_blur_shader,
                 entry_point: "main",
+            }),
+            rasterization_state: Some(RasterizationStateDescriptor {
+                front_face: FrontFace::Ccw,
+                cull_mode: CullMode::None,
+                clamp_depth: false,
+                depth_bias: 0,
+                depth_bias_slope_scale: 0.0,
+                depth_bias_clamp: 0.0,
+            }),
+            primitive_topology: PrimitiveTopology::TriangleList,
+            color_states: &[ColorStateDescriptor {
+                format: TextureFormat::Bgra8UnormSrgb,
+                color_blend: BlendDescriptor::REPLACE,
+                alpha_blend: BlendDescriptor::REPLACE,
+                write_mask: ColorWrite::ALL,
+            }],
+            depth_stencil_state: None,
+            vertex_state: VertexStateDescriptor {
+                index_format: IndexFormat::Uint16,
+                vertex_buffers: &[],
             },
+            sample_count: 1,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
         });
-        let horizontal_blur_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            layout: &pipeline_layout_compute,
-            compute_stage: ProgrammableStageDescriptor {
+        let horizontal_blur_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("glow_post_process_horizontal_blur_pipeline"),
+            layout: Some(&pipeline_layout2),
+            vertex_stage: ProgrammableStageDescriptor {
+                module: &fullscreen_shader,
+                entry_point: "main",
+            },
+            fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &horizontal_blur_shader,
                 entry_point: "main",
+            }),
+            rasterization_state: Some(RasterizationStateDescriptor {
+                front_face: FrontFace::Ccw,
+                cull_mode: CullMode::None,
+                clamp_depth: false,
+                depth_bias: 0,
+                depth_bias_slope_scale: 0.0,
+                depth_bias_clamp: 0.0,
+            }),
+            primitive_topology: PrimitiveTopology::TriangleList,
+            color_states: &[ColorStateDescriptor {
+                format: TextureFormat::Bgra8UnormSrgb,
+                color_blend: BlendDescriptor::REPLACE,
+                alpha_blend: BlendDescriptor::REPLACE,
+                write_mask: ColorWrite::ALL,
+            }],
+            depth_stencil_state: None,
+            vertex_state: VertexStateDescriptor {
+                index_format: IndexFormat::Uint16,
+                vertex_buffers: &[],
             },
+            sample_count: 1,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
         });
-        let add_glow_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            layout: &pipeline_layout_compute,
-            compute_stage: ProgrammableStageDescriptor {
-                module: &add_glow_shader,
+        let combine_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("glow_post_process_combine_pipeline"),
+            layout: Some(&pipeline_layout3),
+            vertex_stage: ProgrammableStageDescriptor {
+                module: &fullscreen_shader,
                 entry_point: "main",
             },
+            fragment_stage: Some(ProgrammableStageDescriptor {
+                module: &combine_shader,
+                entry_point: "main",
+            }),
+            rasterization_state: Some(RasterizationStateDescriptor {
+                front_face: FrontFace::Ccw,
+                cull_mode: CullMode::None,
+                clamp_depth: false,
+                depth_bias: 0,
+                depth_bias_slope_scale: 0.0,
+                depth_bias_clamp: 0.0,
+            }),
+            primitive_topology: PrimitiveTopology::TriangleList,
+            color_states: &[ColorStateDescriptor {
+                format: TextureFormat::Bgra8UnormSrgb,
+                color_blend: BlendDescriptor::REPLACE,
+                alpha_blend: BlendDescriptor::REPLACE,
+                write_mask: ColorWrite::ALL,
+            }],
+            depth_stencil_state: None,
+            vertex_state: VertexStateDescriptor {
+                index_format: IndexFormat::Uint16,
+                vertex_buffers: &[],
+            },
+            sample_count: 1,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
         });
-        let copy_to_render_texture_pipeline =
-            device.create_render_pipeline(&RenderPipelineDescriptor {
-                layout: &pipeline_layout_render,
-                vertex_stage: ProgrammableStageDescriptor {
-                    module: &rectangle_shader,
-                    entry_point: "main",
-                },
-                fragment_stage: Some(ProgrammableStageDescriptor {
-                    module: &copy_texture_shader,
-                    entry_point: "main",
-                }),
-                rasterization_state: Some(RasterizationStateDescriptor {
-                    front_face: FrontFace::Ccw,
-                    cull_mode: CullMode::None,
-                    depth_bias: 0,
-                    depth_bias_slope_scale: 0.0,
-                    depth_bias_clamp: 0.0,
-                }),
-                primitive_topology: PrimitiveTopology::TriangleList,
-                color_states: &[ColorStateDescriptor {
-                    format: TextureFormat::Bgra8UnormSrgb,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                }],
-                depth_stencil_state: None,
-                vertex_state: VertexStateDescriptor {
-                    index_format: IndexFormat::Uint16,
-                    vertex_buffers: &[],
-                },
-                sample_count: 1,
-                sample_mask: !0,
-                alpha_to_coverage_enabled: false,
-            });
 
         Self {
-            texture_width,
-            texture_height,
+            texture1,
+            texture2,
+            texture3,
 
-            copy_to_texture1_pass: (copy_to_texture1_pipeline, copy_to_texture1_bind_group),
-            copy_glowing_pass: (copy_glowing_pipeline, copy_glowing_bind_group),
-            vertical_blur_pass: (vertical_blur_pipeline, vertical_blur_bind_group),
-            horizontal_blur_pass: (horizontal_blur_pipeline, horizontal_blur_bind_group),
-            add_glow_pass: (add_glow_pipeline, add_glow_bind_group),
-            copy_to_render_texture_pass: (
-                copy_to_render_texture_pipeline,
-                copy_to_render_texture_bind_group,
-            ),
-
-            textures: [texture1, texture2, texture3],
             sampler,
-            render_bind_group_layout,
-            compute_bind_group_layout,
+            bind_group_layout1,
+            bind_group_layout2,
+            bind_group_layout3,
+
+            copy_glowing_pass: RenderPass {
+                pipeline: copy_glowing_pipeline,
+                bind_group: copy_glowing_bind_group,
+            },
+            vertical_blur_pass: RenderPass {
+                pipeline: vertical_blur_pipeline,
+                bind_group: vertical_blur_bind_group,
+            },
+            horizontal_blur_pass: RenderPass {
+                pipeline: horizontal_blur_pipeline,
+                bind_group: horizontal_blur_bind_group,
+            },
+            combine_pass: RenderPass {
+                pipeline: combine_pipeline,
+                bind_group: combine_bind_group,
+            },
         }
     }
 
-    pub fn resize(
-        &mut self,
-        device: &Device,
-        input_texture: &TextureView,
-        texture_width: u32,
-        texture_height: u32,
-    ) {
-        let [texture1, texture2, texture3] = create_textures(device, texture_width, texture_height);
-        let [copy_to_texture1_bind_group, copy_glowing_bind_group, vertical_blur_bind_group, horizontal_blur_bind_group, add_glow_bind_group, copy_to_render_texture_bind_group] =
-            create_bind_groups(
-                device,
-                [input_texture, &texture1, &texture2, &texture3],
-                &self.sampler,
-                &self.render_bind_group_layout,
-                &self.compute_bind_group_layout,
-            );
-
-        self.texture_width = texture_width;
-        self.texture_height = texture_height;
-
-        self.textures = [texture1, texture2, texture3];
-        self.copy_to_texture1_pass.1 = copy_to_texture1_bind_group;
-        self.copy_glowing_pass.1 = copy_glowing_bind_group;
-        self.vertical_blur_pass.1 = vertical_blur_bind_group;
-        self.horizontal_blur_pass.1 = horizontal_blur_bind_group;
-        self.add_glow_pass.1 = add_glow_bind_group;
-        self.copy_to_render_texture_pass.1 = copy_to_render_texture_bind_group;
+    pub fn resize(&mut self, device: &Device, texture_width: u32, texture_height: u32) {
+        let (
+            [texture1, texture2, texture3],
+            [copy_glowing_bind_group, vertical_blur_bind_group, horizontal_blur_bind_group, combine_bind_group],
+        ) = create_resources(
+            device,
+            texture_width,
+            texture_height,
+            &self.sampler,
+            &self.bind_group_layout1,
+            &self.bind_group_layout2,
+            &self.bind_group_layout3,
+        );
+        self.texture1 = texture1;
+        self.texture2 = texture2;
+        self.texture3 = texture3;
+        self.copy_glowing_pass.bind_group = copy_glowing_bind_group;
+        self.vertical_blur_pass.bind_group = vertical_blur_bind_group;
+        self.horizontal_blur_pass.bind_group = horizontal_blur_bind_group;
+        self.combine_pass.bind_group = combine_bind_group;
     }
 
     pub fn render(&self, encoder: &mut CommandEncoder, render_texture: &TextureView) {
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &self.textures[0],
+                    attachment: &self.texture2,
                     resolve_target: None,
-                    load_op: LoadOp::Clear,
-                    store_op: StoreOp::Store,
-                    clear_color: Color::BLACK,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
                 }],
                 depth_stencil_attachment: None,
             });
-            pass.set_pipeline(&self.copy_to_texture1_pass.0);
-            pass.set_bind_group(0, &self.copy_to_texture1_pass.1, &[]);
+            pass.set_pipeline(&self.copy_glowing_pass.pipeline);
+            pass.set_bind_group(0, &self.copy_glowing_pass.bind_group, &[]);
             pass.draw(0..6, 0..1);
-        }
-        {
-            let mut pass = encoder.begin_compute_pass();
-            pass.set_pipeline(&self.copy_glowing_pass.0);
-            pass.set_bind_group(0, &self.copy_glowing_pass.1, &[]);
-            pass.dispatch(
-                (self.texture_width as u32 / 7) + 8,
-                (self.texture_height as u32 / 7) + 8,
-                1,
-            );
-        }
-        {
-            let mut pass = encoder.begin_compute_pass();
-            pass.set_pipeline(&self.vertical_blur_pass.0);
-            pass.set_bind_group(0, &self.vertical_blur_pass.1, &[]);
-            pass.dispatch(
-                (self.texture_width as u32 / 7) + 8,
-                (self.texture_height as u32 / 7) + 8,
-                1,
-            );
-        }
-        {
-            let mut pass = encoder.begin_compute_pass();
-            pass.set_pipeline(&self.horizontal_blur_pass.0);
-            pass.set_bind_group(0, &self.horizontal_blur_pass.1, &[]);
-            pass.dispatch(
-                (self.texture_width as u32 / 7) + 8,
-                (self.texture_height as u32 / 7) + 8,
-                1,
-            );
-        }
-        {
-            let mut pass = encoder.begin_compute_pass();
-            pass.set_pipeline(&self.add_glow_pass.0);
-            pass.set_bind_group(0, &self.add_glow_pass.1, &[]);
-            pass.dispatch(
-                (self.texture_width as u32 / 7) + 8,
-                (self.texture_height as u32 / 7) + 8,
-                1,
-            );
         }
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &render_texture,
+                    attachment: &self.texture3,
                     resolve_target: None,
-                    load_op: LoadOp::Clear,
-                    store_op: StoreOp::Store,
-                    clear_color: Color::BLACK,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
                 }],
                 depth_stencil_attachment: None,
             });
-            pass.set_pipeline(&self.copy_to_render_texture_pass.0);
-            pass.set_bind_group(0, &self.copy_to_render_texture_pass.1, &[]);
+            pass.set_pipeline(&self.vertical_blur_pass.pipeline);
+            pass.set_bind_group(0, &self.vertical_blur_pass.bind_group, &[]);
+            pass.draw(0..6, 0..1);
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &self.texture2,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            pass.set_pipeline(&self.horizontal_blur_pass.pipeline);
+            pass.set_bind_group(0, &self.horizontal_blur_pass.bind_group, &[]);
+            pass.draw(0..6, 0..1);
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: render_texture,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            pass.set_pipeline(&self.combine_pass.pipeline);
+            pass.set_bind_group(0, &self.combine_pass.bind_group, &[]);
             pass.draw(0..6, 0..1);
         }
     }
 }
 
-fn create_textures(device: &Device, texture_width: u32, texture_height: u32) -> [TextureView; 3] {
-    let texture_descriptor_1 = TextureDescriptor {
-        label: None,
+fn create_resources(
+    device: &Device,
+    texture_width: u32,
+    texture_height: u32,
+    sampler: &Sampler,
+    bind_group_layout1: &BindGroupLayout,
+    bind_group_layout2: &BindGroupLayout,
+    bind_group_layout3: &BindGroupLayout,
+) -> ([TextureView; 3], [BindGroup; 4]) {
+    let mut texture_descriptor = TextureDescriptor {
+        label: Some("glow_post_process_texture1"),
         size: Extent3d {
             width: texture_width,
             height: texture_height,
             depth: 1,
         },
-        array_layer_count: 1,
         mip_level_count: 1,
         sample_count: 1,
         dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba16Float,
-        usage: TextureUsage::STORAGE | TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
-    };
-    let texture_descriptor_2_3 = TextureDescriptor {
-        label: None,
-        size: Extent3d {
-            width: texture_width,
-            height: texture_height,
-            depth: 1,
-        },
-        array_layer_count: 1,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba16Float,
-        usage: TextureUsage::STORAGE,
+        format: TextureFormat::Bgra8UnormSrgb,
+        usage: TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
     };
     let texture1 = device
-        .create_texture(&texture_descriptor_1)
-        .create_default_view();
+        .create_texture(&texture_descriptor)
+        .create_view(&TextureViewDescriptor::default());
+    texture_descriptor.label = Some("glow_post_process_texture2");
     let texture2 = device
-        .create_texture(&texture_descriptor_2_3)
-        .create_default_view();
+        .create_texture(&texture_descriptor)
+        .create_view(&TextureViewDescriptor::default());
+    texture_descriptor.label = Some("glow_post_process_texture3");
     let texture3 = device
-        .create_texture(&texture_descriptor_2_3)
-        .create_default_view();
-    [texture1, texture2, texture3]
-}
+        .create_texture(&texture_descriptor)
+        .create_view(&TextureViewDescriptor::default());
+    let texture_size_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("glow_post_process_texture_size_buffer"),
+        contents: unsafe {
+            slice::from_raw_parts(
+                [texture_width as f32, texture_height as f32]
+                    .as_ptr()
+                    .cast(),
+                size_of::<f32>() * 2,
+            )
+        },
+        usage: BufferUsage::UNIFORM,
+    });
 
-fn create_bind_groups(
-    device: &Device,
-    textures: [&TextureView; 4],
-    sampler: &Sampler,
-    render_bind_group_layout: &BindGroupLayout,
-    compute_bind_group_layout: &BindGroupLayout,
-) -> [BindGroup; 6] {
-    let copy_to_texture1_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &render_bind_group_layout,
-        bindings: &[
-            Binding {
+    let copy_glowing_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("glow_post_process_copy_glowing_bind_group"),
+        layout: bind_group_layout1,
+        entries: &[
+            BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(textures[0]),
-            },
-            Binding {
-                binding: 1,
                 resource: BindingResource::Sampler(sampler),
             },
-        ],
-        label: None,
-    });
-    let copy_glowing_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &compute_bind_group_layout,
-        bindings: &[
-            Binding {
-                binding: 0,
-                resource: BindingResource::TextureView(textures[1]),
-            },
-            Binding {
+            BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::TextureView(textures[2]),
+                resource: BindingResource::TextureView(&texture1),
             },
         ],
-        label: None,
     });
     let vertical_blur_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &compute_bind_group_layout,
-        bindings: &[
-            Binding {
+        label: Some("glow_post_process_vertical_blur_bind_group"),
+        layout: bind_group_layout2,
+        entries: &[
+            BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(textures[2]),
-            },
-            Binding {
-                binding: 1,
-                resource: BindingResource::TextureView(textures[3]),
-            },
-        ],
-        label: None,
-    });
-    let horizontal_blur_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &compute_bind_group_layout,
-        bindings: &[
-            Binding {
-                binding: 0,
-                resource: BindingResource::TextureView(textures[3]),
-            },
-            Binding {
-                binding: 1,
-                resource: BindingResource::TextureView(textures[2]),
-            },
-        ],
-        label: None,
-    });
-    let add_glow_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &compute_bind_group_layout,
-        bindings: &[
-            Binding {
-                binding: 0,
-                resource: BindingResource::TextureView(textures[2]),
-            },
-            Binding {
-                binding: 1,
-                resource: BindingResource::TextureView(textures[1]),
-            },
-        ],
-        label: None,
-    });
-    let copy_to_render_texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &render_bind_group_layout,
-        bindings: &[
-            Binding {
-                binding: 0,
-                resource: BindingResource::TextureView(textures[1]),
-            },
-            Binding {
-                binding: 1,
                 resource: BindingResource::Sampler(sampler),
             },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(&texture2),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Buffer(texture_size_buffer.slice(..)),
+            },
         ],
-        label: None,
     });
-    [
-        copy_to_texture1_bind_group,
-        copy_glowing_bind_group,
-        vertical_blur_bind_group,
-        horizontal_blur_bind_group,
-        add_glow_bind_group,
-        copy_to_render_texture_bind_group,
-    ]
+    let horizontal_blur_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("glow_post_process_horizontal_blur_bind_group"),
+        layout: bind_group_layout2,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(sampler),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(&texture3),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Buffer(texture_size_buffer.slice(..)),
+            },
+        ],
+    });
+    let combine_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("glow_post_process_combine_bind_group"),
+        layout: bind_group_layout3,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(sampler),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(&texture1),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::TextureView(&texture2),
+            },
+        ],
+    });
+
+    (
+        [texture1, texture2, texture3],
+        [
+            copy_glowing_bind_group,
+            vertical_blur_bind_group,
+            horizontal_blur_bind_group,
+            combine_bind_group,
+        ],
+    )
 }
