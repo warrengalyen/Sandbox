@@ -52,6 +52,7 @@ fn main() {
     // Simulation state
     let mut sandbox = Sandbox::new();
     let mut last_update = Instant::now();
+    let mut frame_time = Duration::from_secs(0);
     let mut paused = false;
     let mut update_once = false;
 
@@ -71,6 +72,7 @@ fn main() {
     let mut curr_cursor_position = PhysicalPosition::<f64>::new(0.0, 0.0);
 
     event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
         match &event {
             Event::NewEvents(_) => {
                 GlobalProfiler::lock().new_frame();
@@ -303,10 +305,17 @@ fn main() {
                 }
 
                 // Update the simulation
-                if last_update.elapsed() >= TARGET_TIME_PER_UPDATE && (!paused || update_once) {
-                    update_once = false;
-                    last_update = Instant::now();
-                    sandbox.update();
+                frame_time += last_update.elapsed();
+                last_update = Instant::now();
+                let mut updates = 0;
+                let max_updates = if cfg!(debug_assertions) { 1 } else { 5 };
+                while frame_time >= TARGET_TIME_PER_UPDATE && updates != max_updates {
+                    if !paused || update_once {
+                        update_once = false;
+                        updates += 1;
+                        sandbox.update();
+                    }
+                    frame_time -= TARGET_TIME_PER_UPDATE;
                 }
 
                 ui.prepare_render(&window);
@@ -316,7 +325,6 @@ fn main() {
             // Render
             Event::RedrawRequested(_) => {
                 profile_scope!("render");
-
                 let has_glow = sandbox.render(pixels.get_frame());
 
                 profile_scope!("render_gpu");
