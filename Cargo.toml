@@ -12,6 +12,8 @@ winit = "0.22"
 rand = "0.7"
 simdnoise = "3.1"
 flume = { version = "0.7", default-features = false }
+puffin = "0.2"
+puffin-imgui = "0.2"
 
 [profile.dev.package."*"]
 opt-level = 3

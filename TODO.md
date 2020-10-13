@@ -1,13 +1,15 @@
 ## Immediate Todo
+1. Update to wgpu 0.6
+2. Fix performance issues (game loop wrong?)
 
 ## Later Todo
 1. Make particles move left/right randomly when they can do either
-2. Fix to Electricity getting stuck with 1 particle of water in mid-air
-3. Make Fire not spread so fast when starting from the top/left
+2. Fix UI bounding box extending a bit too far to the right
+3. Fix 2 Electricity getting stuck with 1 particle of water in mid-air
 4. Replace simdnoise and flume with a shader
 ---
-5. Update to flatpak to 20.08 and remove Cargo.toml hacks
-6. Add back support for wayland when less buggy (missing virtual keycodes, slow input events infinitely triggering, buggy fullscreen toggling on gnome, buggy decorations)
+5. Update flatpak to 20.08 and remove Cargo.toml hacks
+6. Add back support for wayland when less buggy
 7. Replace heap_array.rs with 'placement new' when it gets added to rust
 ---
 8. Save/Load simulations with files

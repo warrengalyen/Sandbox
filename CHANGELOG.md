@@ -3,6 +3,7 @@
 * Added a UI
 * Tweaked Fire spread
 * Smoke now looks smokier
+* Added a profiling tool
 ### Misc
 * Performance improvements for rendering
 ### Bugfixes

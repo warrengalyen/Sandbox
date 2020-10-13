@@ -717,6 +717,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8637c7ec4fd0776c51eeab3e0d5d1aa7e440ece3fc2ee7d674e13c957287bfc1"
+
+[[package]]
 name = "hibitset"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1311,6 +1317,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "puffin"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46778c1d64301a16b71a3c12410668713b61bfeb20d09c2528edd17491406b44"
+dependencies = [
+ "byteorder",
+ "once_cell",
+ "parking_lot 0.10.2",
+]
+
+[[package]]
+name = "puffin-imgui"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d11b6797e873e582f504100996f096eb221f8d60ef79947fa0b0924d92515e90"
+dependencies = [
+ "glam",
+ "imgui",
+ "puffin",
+ "serde",
+]
+
+[[package]]
 name = "quote"
 version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1428,6 +1457,8 @@ dependencies = [
  "imgui-wgpu",
  "imgui-winit-support",
  "pixels",
+ "puffin",
+ "puffin-imgui",
  "rand",
  "simdnoise",
  "winit",
@@ -1444,6 +1475,20 @@ name = "serde"
 version = "1.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96fe57af81d28386a513cbc6858332abc6117cfdb5999647c6444b8f43a370a5"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f630a6370fd8e457873b4bd2ffdae75408bc291ba72be773772a4c2a065d9ae8"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+ "syn",
+]
 
 [[package]]
 name = "simdeez"
