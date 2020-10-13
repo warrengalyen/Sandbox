@@ -374,7 +374,7 @@ impl UI {
                 .draw_background(false)
                 .movable(false)
                 .resizable(false)
-                .no_inputs()
+                .no_inputs() 
                 .build(&ui, || ui.text(format!("FPS: {:.0}", fps)));
         }
 
