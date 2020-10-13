@@ -614,8 +614,8 @@ dependencies = [
 
 [[package]]
 name = "imgui-wgpu"
-version = "0.9.0"
-source = "git+https://github.com/Aeledfyr/imgui-wgpu-rs#af054c9a21524fed4c8746f06473d852af7790e1"
+version = "0.8.0"
+source = "git+https://github.com/cwfitzgerald/imgui-wgpu-rs?branch=wgpu-update#04f4948c45c73b79fb6db363b397624c9f027310"
 dependencies = [
  "bytemuck",
  "imgui",
@@ -1291,6 +1291,7 @@ dependencies = [
 name = "sandbox"
 version = "1.1.0"
 dependencies = [
+ "bytemuck",
  "flume",
  "imgui",
  "imgui-wgpu",
